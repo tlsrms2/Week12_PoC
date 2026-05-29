@@ -5,7 +5,7 @@ using System.Linq;
 
 /// <summary>
 /// 패턴 디자이너 - 삼각형 그리드 기반 커스텀 EditorWindow
-/// 탭 1: 그리드 편집기 (삼각형 클릭 → 타임라인/색상 설정)
+/// 탭 1: 그리드 편집기 (삼각형 클릭 → 세로 타임라인/색상 설정)
 /// 탭 2: 미리보기 (패턴 순차 재생 시뮬레이션)
 /// </summary>
 public class PatternDesignerWindow : EditorWindow
@@ -20,11 +20,17 @@ public class PatternDesignerWindow : EditorWindow
 
     // ── 그리드 편집기 상태 ──
     private int _selectedTriangle = -1;
+    private int _draggedTriangle = -1; // 드래그 앤 드롭 대상
     private Vector2 _gridScrollPos;
     private Vector2 _timelineScrollPos;
     
     // 브러시
     private bool _brushR = true, _brushG = false, _brushB = false;
+
+    // ── 박자 세분화 ──
+    private int _subdivisionIndex = 2; // 기본 1/4 박
+    private static readonly int[] SubdivisionOptions = { 1, 2, 4, 8 };
+    private static readonly string[] SubdivisionLabels = { "1 비트", "1/2 박", "1/4 박 (기본)", "1/8 박" };
 
     // ── 미리보기 상태 ──
     private float _previewBpm = 120f;
@@ -83,7 +89,8 @@ public class PatternDesignerWindow : EditorWindow
     }
 
     // ── 타임라인 설정 ──
-    private int _maxBeats = 16;
+    private int _maxBeats = 8; // 기본 8비트로 수정
+    private PatternData _lastPattern;
 
     [MenuItem("RhythmPuzzle/패턴 디자이너 %#p")]
     public static void ShowWindow()
@@ -129,7 +136,15 @@ public class PatternDesignerWindow : EditorWindow
         if (_pattern == null)
         {
             EditorGUILayout.HelpBox("위에서 편집할 PatternData SO를 선택하세요.", MessageType.Info);
+            _lastPattern = null;
             return;
+        }
+
+        // 로드된 패턴에 따라 타임라인 길이 동적 동기화
+        if (_pattern != _lastPattern)
+        {
+            _lastPattern = _pattern;
+            _maxBeats = Mathf.Max(8, Mathf.CeilToInt(_pattern.MaxBeatOffset));
         }
 
         // ── 탭 ──
@@ -155,21 +170,71 @@ public class PatternDesignerWindow : EditorWindow
         // ── 좌측: 삼각형 그리드 ──
         EditorGUILayout.BeginVertical(GUILayout.Width(360));
         DrawTriangleGrid();
+        
+        // ── 패턴 설정 (graceTime) ──
+        EditorGUILayout.Space(8);
+        DrawPatternSettings();
+        
         EditorGUILayout.EndVertical();
 
-        // ── 우측: 선택된 삼각형의 타임라인 ──
+        // ── 우측: 선택된 삼각형의 세로 타임라인 ──
         EditorGUILayout.BeginVertical();
-        DrawSelectedTriangleTimeline();
+        DrawSelectedTriangleVerticalTimeline();
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndHorizontal();
     }
 
+    /// <summary> 패턴 설정 UI (graceTime, judgmentBeats 등) </summary>
+    private void DrawPatternSettings()
+    {
+        EditorGUILayout.LabelField("패턴 설정", EditorStyles.boldLabel);
+        
+        // ── 유예 시간 설정 ──
+        EditorGUI.BeginChangeCheck();
+        float newGraceTime = EditorGUILayout.FloatField("유예 시간 (비트 수)", _pattern.graceTime);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(_pattern, "Change Grace Time");
+            _pattern.graceTime = newGraceTime;
+            EditorUtility.SetDirty(_pattern);
+        }
+        
+        if (_pattern.graceTime < 0)
+        {
+            string fallbackText = _songData != null 
+                ? $"SongData 기본값 사용: {_songData.graceTime}비트" 
+                : "SongData 기본값 사용 (-1)";
+            EditorGUILayout.HelpBox(fallbackText, MessageType.Info);
+        }
+
+        EditorGUILayout.Space(4);
+
+        // ── 판정 연출 대기 시간 설정 ──
+        EditorGUI.BeginChangeCheck();
+        float newJudgeBeats = EditorGUILayout.FloatField("판정 시간 (비트 수)", _pattern.judgmentBeats);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(_pattern, "Change Judgment Beats");
+            _pattern.judgmentBeats = newJudgeBeats;
+            EditorUtility.SetDirty(_pattern);
+        }
+
+        if (_pattern.judgmentBeats < 0)
+        {
+            string fallbackText = _songData != null 
+                ? $"SongData 기본값 사용: {_songData.judgmentBeats}비트" 
+                : "SongData 기본값 사용 (-1)";
+            EditorGUILayout.HelpBox(fallbackText, MessageType.Info);
+        }
+    }
+
+    /// <summary> 삼각형 그리드를 씬과 동일한 배치로 그리기 </summary>
     /// <summary> 삼각형 그리드를 씬과 동일한 배치로 그리기 </summary>
     private void DrawTriangleGrid()
     {
         EditorGUILayout.LabelField("삼각형 그리드", EditorStyles.boldLabel);
-        EditorGUILayout.HelpBox("삼각형을 클릭하면 우측에 타임라인 편집기가 나타납니다.", MessageType.None);
+        EditorGUILayout.HelpBox("삼각형을 클릭하면 우측에 세로 타임라인 편집기가 나타납니다.\n설정해둔 값을 유지한 채 마우스 좌클릭으로 삼각형을 드래그해서 다른 삼각형 위로 옮길 수 있습니다.", MessageType.None);
 
         float gridW = 340f;
         float gridH = 340f;
@@ -180,6 +245,24 @@ public class PatternDesignerWindow : EditorWindow
 
         // 중심 계산
         Vector2 center = new Vector2(gridArea.x + gridW * 0.5f, gridArea.y + gridH * 0.45f);
+
+        // 현재 마우스 아래에 위치한 삼각형 찾기 (드래그 하이라이트용)
+        int hoverTarget = -1;
+        if (_draggedTriangle != -1)
+        {
+            foreach (var t in Triangles)
+            {
+                float sx = center.x + t.x * scale;
+                float sy = center.y - t.y * scale;
+                float triSize = scale * 0.85f;
+                Vector3[] vertices = GetTriangleVertices(sx, sy, triSize, t.flipped);
+                if (IsPointInTriangle(Event.current.mousePosition, vertices[0], vertices[1], vertices[2]))
+                {
+                    hoverTarget = t.index;
+                    break;
+                }
+            }
+        }
 
         Handles.BeginGUI();
         foreach (var tri in Triangles)
@@ -203,6 +286,21 @@ public class PatternDesignerWindow : EditorWindow
             Color strokeColor = isSelected ? Color.yellow : new Color(0.4f, 0.4f, 0.45f);
             float strokeWidth = isSelected ? 3.0f : 1.5f;
 
+            // 드래그 중인 원본 삼각형 강조 (주황색 테두리)
+            if (_draggedTriangle == tri.index)
+            {
+                strokeColor = new Color(1f, 0.5f, 0f);
+                strokeWidth = 3.5f;
+            }
+
+            // 드래그 마우스가 올라간 드롭 대상 삼각형 강조 (에메랄드색 테두리 및 틴트)
+            if (_draggedTriangle != -1 && hoverTarget == tri.index && tri.index != _draggedTriangle)
+            {
+                strokeColor = Color.cyan;
+                strokeWidth = 3.5f;
+                fillColor = Color.Lerp(fillColor, Color.cyan, 0.25f);
+            }
+
             // 실제 삼각형 그리기
             DrawTriangle(vertices, fillColor, strokeColor, strokeWidth);
 
@@ -225,16 +323,46 @@ public class PatternDesignerWindow : EditorWindow
             // 클릭 감지 (정밀한 삼각형 내 충돌 판정)
             if (Event.current.type == EventType.MouseDown && IsPointInTriangle(Event.current.mousePosition, vertices[0], vertices[1], vertices[2]))
             {
-                _selectedTriangle = tri.index;
+                if (Event.current.button == 0) // 좌클릭: 선택 및 드래그 시작
+                {
+                    _selectedTriangle = tri.index;
+                    _draggedTriangle = tri.index;
+                }
+                else if (Event.current.button == 1) // 우클릭: 패턴 지우기
+                {
+                    ClearStepsForTile(tri.index);
+                }
                 Event.current.Use();
                 Repaint();
             }
         }
+
+        // 전역 마우스 이벤트 핸들링 (드래그 취소 및 드롭 실행)
+        Event e = Event.current;
+        if (_draggedTriangle != -1)
+        {
+            if (e.type == EventType.MouseDrag)
+            {
+                Repaint();
+            }
+            else if (e.type == EventType.MouseUp && e.button == 0)
+            {
+                if (hoverTarget != -1 && hoverTarget != _draggedTriangle)
+                {
+                    MoveStepsToTile(_draggedTriangle, hoverTarget);
+                    _selectedTriangle = hoverTarget;
+                }
+                _draggedTriangle = -1;
+                e.Use();
+                Repaint();
+            }
+        }
+
         Handles.EndGUI();
     }
 
-    /// <summary> 선택된 삼각형의 타임라인 편집 UI </summary>
-    private void DrawSelectedTriangleTimeline()
+    /// <summary> 선택된 삼각형의 세로 타임라인 편집 UI (비트가 위→아래로 흐름) </summary>
+    private void DrawSelectedTriangleVerticalTimeline()
     {
         if (_selectedTriangle < 1)
         {
@@ -263,65 +391,136 @@ public class PatternDesignerWindow : EditorWindow
 
         EditorGUILayout.EndHorizontal();
 
-        // ── 비트 수 슬라이더 ──
-        _maxBeats = EditorGUILayout.IntSlider("비트 수", _maxBeats, 4, 64);
-        
-        // ── BPM 표시 ──
+        // ── 설정 행 ──
         EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField($"BPM: {_previewBpm}", GUILayout.Width(100));
-        _previewBpm = EditorGUILayout.FloatField(_previewBpm, GUILayout.Width(60));
+        EditorGUILayout.LabelField($"비트 수: {_maxBeats}", GUILayout.Width(80));
+        if (GUILayout.Button("+1 비트", GUILayout.Width(60)))
+        {
+            _maxBeats = Mathf.Clamp(_maxBeats + 1, 4, 128);
+        }
+        if (GUILayout.Button("+4 비트", GUILayout.Width(60)))
+        {
+            _maxBeats = Mathf.Clamp(_maxBeats + 4, 4, 128);
+        }
+        if (GUILayout.Button("-1 비트", GUILayout.Width(60)))
+        {
+            _maxBeats = Mathf.Clamp(_maxBeats - 1, 4, 128);
+        }
+        if (GUILayout.Button("-4 비트", GUILayout.Width(60)))
+        {
+            _maxBeats = Mathf.Clamp(_maxBeats - 4, 4, 128);
+        }
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.BeginHorizontal();
+        if (_songData != null)
+        {
+            EditorGUILayout.LabelField($"BPM: {_songData.bpm} (곡 SO 기준)", GUILayout.Width(150));
+        }
+        else
+        {
+            EditorGUILayout.LabelField("BPM: 120 (기본값)", GUILayout.Width(150));
+        }
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("세분화:", GUILayout.Width(50));
+        _subdivisionIndex = EditorGUILayout.Popup(_subdivisionIndex, SubdivisionLabels, GUILayout.Width(110));
         EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.Space(4);
 
-        // ── 비트 타임라인 그리드 ──
-        float cellW = 32f;
-        float cellH = 28f;
-        float headerH = 20f;
+        // ── 세로 비트 타임라인 (1비트 = 1가로줄, 가로로 세분화 슬롯 배치) ──
+        int subdivision = SubdivisionOptions[_subdivisionIndex];
+        float slotStep = 1f / subdivision; // 한 슬롯의 비트 값
 
-        _timelineScrollPos = EditorGUILayout.BeginScrollView(_timelineScrollPos, GUILayout.Height(80));
+        float cellW = Mathf.Clamp(280f / subdivision, 35f, 75f);
+        float cellH = 26f;
+        float headerH = 24f;
+        float labelW = 60f; // 비트 라벨 너비
 
-        float totalW = cellW * _maxBeats + 10;
-        Rect areaRect = GUILayoutUtility.GetRect(totalW, headerH + cellH + 4);
+        float totalH = headerH + cellH * _maxBeats + 10;
+
+        _timelineScrollPos = EditorGUILayout.BeginScrollView(_timelineScrollPos, GUILayout.ExpandHeight(true));
+
+        Rect areaRect = GUILayoutUtility.GetRect(labelW + cellW * subdivision + 20, totalH);
         EditorGUI.DrawRect(areaRect, new Color(0.13f, 0.13f, 0.16f));
 
         // 이 삼각형에 대한 스텝 목록
         var mySteps = GetStepsForTile(_selectedTriangle);
 
+        // 헤더 그리기
+        Rect labelHeaderRect = new Rect(areaRect.x, areaRect.y, labelW, headerH);
+        EditorGUI.DrawRect(labelHeaderRect, new Color(0.18f, 0.18f, 0.22f));
+        GUI.Label(labelHeaderRect, "비트", CenteredMiniStyle);
+
+        for (int col = 0; col < subdivision; col++)
+        {
+            float offset = col * slotStep;
+            Rect colHeaderRect = new Rect(areaRect.x + labelW + col * cellW, areaRect.y, cellW - 1, headerH);
+            EditorGUI.DrawRect(colHeaderRect, new Color(0.2f, 0.2f, 0.25f));
+            string offsetStr = col == 0 ? "+0.0" : $"+{offset:F3}".TrimEnd('0').TrimEnd('.');
+            GUI.Label(colHeaderRect, offsetStr, CenteredMiniStyle);
+        }
+
+        // 비트별 행 그리기
         for (int b = 0; b < _maxBeats; b++)
         {
-            // 헤더
-            Rect headerCell = new Rect(areaRect.x + b * cellW, areaRect.y, cellW - 1, headerH);
-            Color hdrBg = (b % 4 == 0) ? new Color(0.28f, 0.28f, 0.38f) : new Color(0.2f, 0.2f, 0.2f);
-            EditorGUI.DrawRect(headerCell, hdrBg);
-            GUI.Label(headerCell, b.ToString(), CenteredMiniStyle);
+            bool isMeasureLine = (b % 4 == 0);
 
-            // 셀
-            Rect cell = new Rect(areaRect.x + b * cellW, areaRect.y + headerH + 2, cellW - 1, cellH - 1);
+            // 비트 라벨 (좌측)
+            Rect labelRect = new Rect(areaRect.x, areaRect.y + headerH + b * cellH, labelW, cellH - 1);
+            Color labelBg = isMeasureLine ? new Color(0.28f, 0.28f, 0.38f) : new Color(0.18f, 0.18f, 0.22f);
+            EditorGUI.DrawRect(labelRect, labelBg);
 
-            int stepIdx = FindStepIndex(_selectedTriangle, b);
-            if (stepIdx >= 0)
+            GUIStyle lblStyle = new GUIStyle(EditorStyles.miniLabel)
             {
-                // 있는 스텝
-                Color c = ColorUtil.ToColor(_pattern.steps[stepIdx].color);
-                EditorGUI.DrawRect(cell, c);
-                DrawRectOutline(cell, Color.white, 1);
-            }
-            else
-            {
-                // 빈 셀
-                Color bg = (b % 4 == 0) ? new Color(0.22f, 0.22f, 0.28f) : new Color(0.18f, 0.18f, 0.18f);
-                EditorGUI.DrawRect(cell, bg);
-            }
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = isMeasureLine ? Color.white : new Color(0.8f, 0.8f, 0.8f) },
+                fontSize = isMeasureLine ? 10 : 9,
+                fontStyle = isMeasureLine ? FontStyle.Bold : FontStyle.Normal
+            };
+            GUI.Label(labelRect, $"Beat {b}", lblStyle);
 
-            // 클릭
-            if (Event.current.type == EventType.MouseDown && cell.Contains(Event.current.mousePosition))
+            // 각 세분화 열(셀) 그리기
+            for (int col = 0; col < subdivision; col++)
             {
+                float beatValue = b + col * slotStep;
+                Rect cell = new Rect(areaRect.x + labelW + col * cellW, areaRect.y + headerH + b * cellH, cellW - 1, cellH - 1);
+
+                int stepIdx = FindStepIndex(_selectedTriangle, beatValue);
                 if (stepIdx >= 0)
-                    RemoveStep(stepIdx);
-                else if (brushColor != ColorChannel.None)
-                    AddStep(_selectedTriangle, b, brushColor);
-                Event.current.Use();
+                {
+                    // 있는 스텝 — 색상으로 표시
+                    Color c = ColorUtil.ToColor(_pattern.steps[stepIdx].color);
+                    EditorGUI.DrawRect(cell, c);
+                    DrawRectOutline(cell, Color.white, 1.5f);
+                }
+                else
+                {
+                    // 빈 셀
+                    Color bg;
+                    if (isMeasureLine)
+                        bg = new Color(0.22f, 0.22f, 0.30f);
+                    else
+                        bg = (col % 2 == 0) ? new Color(0.17f, 0.17f, 0.19f) : new Color(0.14f, 0.14f, 0.16f);
+                    EditorGUI.DrawRect(cell, bg);
+                    
+                    // 아주 미세한 안쪽 테두리
+                    DrawRectOutline(cell, new Color(0.25f, 0.25f, 0.28f, 0.3f), 0.5f);
+                }
+
+                // 클릭 감지
+                if (Event.current.type == EventType.MouseDown && cell.Contains(Event.current.mousePosition))
+                {
+                    if (stepIdx >= 0)
+                    {
+                        RemoveStep(stepIdx);
+                    }
+                    else if (brushColor != ColorChannel.None)
+                    {
+                        AddStep(_selectedTriangle, beatValue, brushColor);
+                    }
+                    Event.current.Use();
+                }
             }
         }
 
@@ -342,7 +541,7 @@ public class PatternDesignerWindow : EditorWindow
                 EditorGUILayout.BeginHorizontal();
                 Rect colorBlock = GUILayoutUtility.GetRect(14, 14, GUILayout.Width(14));
                 EditorGUI.DrawRect(colorBlock, ColorUtil.ToColor(s.step.color));
-                EditorGUILayout.LabelField($"Beat {s.step.beatOffset}  →  {GetChannelLabel(s.step.color)}", GUILayout.Width(180));
+                EditorGUILayout.LabelField($"Beat {s.step.beatOffset:F2}  →  {GetChannelLabel(s.step.color)}", GUILayout.Width(180));
                 if (GUILayout.Button("✕", GUILayout.Width(22)))
                 {
                     RemoveStep(s.globalIndex);
@@ -358,7 +557,7 @@ public class PatternDesignerWindow : EditorWindow
         int totalSteps = _pattern.steps != null ? _pattern.steps.Length : 0;
         int usedTiles = _pattern.steps != null ? _pattern.steps.Select(s => s.triangleIndex).Distinct().Count() : 0;
         float maxBeat = _pattern.MaxBeatOffset;
-        EditorGUILayout.LabelField($"  총 스텝: {totalSteps}   |   사용 타일: {usedTiles}/24   |   마지막 비트: {maxBeat}");
+        EditorGUILayout.LabelField($"  총 스텝: {totalSteps}   |   사용 타일: {usedTiles}/24   |   마지막 비트: {maxBeat:F2}");
     }
 
     // ════════════════════════════════════════════════════════════
@@ -433,10 +632,16 @@ public class PatternDesignerWindow : EditorWindow
     {
         EditorGUILayout.LabelField("재생 컨트롤", EditorStyles.boldLabel);
 
-        // BPM
+        // BPM (곡 SO 기준 읽기 전용으로 표시)
         EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField("BPM:", GUILayout.Width(35));
-        _previewBpm = EditorGUILayout.FloatField(_previewBpm, GUILayout.Width(60));
+        if (_songData != null)
+        {
+            EditorGUILayout.LabelField($"BPM: {_songData.bpm} (곡 SO 기준)", GUILayout.Width(200));
+        }
+        else
+        {
+            EditorGUILayout.LabelField("BPM: 120 (기본값)", GUILayout.Width(200));
+        }
         EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.Space(4);
@@ -479,7 +684,7 @@ public class PatternDesignerWindow : EditorWindow
             alignment = TextAnchor.MiddleCenter,
             normal = { textColor = Color.white }
         };
-        GUI.Label(progressRect, $"Beat {currentBeat:F1}  /  {maxBeat}", progressLabel);
+        GUI.Label(progressRect, $"Beat {currentBeat:F1}  /  {maxBeat:F1}", progressLabel);
 
         // 미리보기 업데이트
         if (_isPreviewPlaying)
@@ -525,7 +730,7 @@ public class PatternDesignerWindow : EditorWindow
                 if (isPast) stepStyle.normal.textColor = new Color(0.5f, 0.8f, 0.5f);
                 
                 EditorGUILayout.LabelField(
-                    $"Beat {step.beatOffset:F0}  |  T{step.triangleIndex:D2}  |  {GetChannelLabel(step.color)}",
+                    $"Beat {step.beatOffset:F2}  |  T{step.triangleIndex:D2}  |  {GetChannelLabel(step.color)}",
                     stepStyle);
 
                 EditorGUILayout.EndHorizontal();
@@ -664,6 +869,50 @@ public class PatternDesignerWindow : EditorWindow
             _pattern.steps = list.ToArray();
         }
         EditorUtility.SetDirty(_pattern);
+    }
+
+    private void ClearStepsForTile(int tileIndex)
+    {
+        if (_pattern == null || _pattern.steps == null) return;
+
+        Undo.RecordObject(_pattern, "Clear Tile Steps");
+        var list = new List<PatternStep>(_pattern.steps);
+        list.RemoveAll(s => s.triangleIndex == tileIndex);
+        _pattern.steps = list.ToArray();
+        EditorUtility.SetDirty(_pattern);
+    }
+
+    private void MoveStepsToTile(int fromTile, int toTile)
+    {
+        if (_pattern == null || _pattern.steps == null) return;
+
+        Undo.RecordObject(_pattern, "Swap Tile Steps");
+
+        var list = new List<PatternStep>(_pattern.steps);
+        bool changed = false;
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            var step = list[i];
+            if (step.triangleIndex == fromTile)
+            {
+                step.triangleIndex = toTile;
+                list[i] = step;
+                changed = true;
+            }
+            else if (step.triangleIndex == toTile)
+            {
+                step.triangleIndex = fromTile;
+                list[i] = step;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            _pattern.steps = list.ToArray();
+            EditorUtility.SetDirty(_pattern);
+        }
     }
 
     private ColorChannel GetBrushChannel()

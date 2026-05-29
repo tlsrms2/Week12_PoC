@@ -74,6 +74,13 @@ public class GameManager : MonoBehaviour
     /// <summary>현재 라운드의 유예 시간</summary>
     private float _currentGraceTime;
 
+    // BGM 정밀 동기화용 비트 타이밍 캐시 필드
+    private float _roundStartBeat;
+    private float _roundTeacherBeats;
+    private float _roundPlayerBeats;
+    private float _roundStartTime;
+    private float _roundStartBgmTime;
+
     // 연출매니저 이관으로 스케일 캐시/서클 캐시 제거됨
 
     private void Awake()
@@ -144,7 +151,7 @@ public class GameManager : MonoBehaviour
             _playerInput.InputEnabled = false;
         
         // 자동 시작 (곡 데이터가 있으면)
-        if (_songData != null && _songData.patterns != null && _songData.patterns.Length > 0)
+        if (_songData != null && _songData.patternEntries != null && _songData.patternEntries.Length > 0)
         {
             StartCoroutine(StartGameCoroutine());
         }
@@ -166,6 +173,30 @@ public class GameManager : MonoBehaviour
 
     private void Update()
     {
+        // ── 타이머 BGM 비트 실시간 동기화 푸시 루프 ──
+        if (_currentState == GameState.TeacherPlaying || _currentState == GameState.PlayerInput)
+        {
+            float secondsPerBeat = 60f / _songData.bpm;
+            float currentTime = (AudioManager.Instance != null && AudioManager.Instance.IsBGMPlaying)
+                ? AudioManager.Instance.CurrentBGMTime - _songData.audioStartOffset
+                : _roundStartBgmTime + (Time.time - _roundStartTime);
+                
+            float currentBeat = currentTime / secondsPerBeat;
+            float elapsedBeats = currentBeat - _roundStartBeat;
+
+            if (_currentState == GameState.TeacherPlaying && _teacherTimer != null && _teacherTimer.IsRunning)
+            {
+                float remainingTeacher = Mathf.Max(0f, _roundTeacherBeats - elapsedBeats);
+                _teacherTimer.SetRemainingTimeDirect(remainingTeacher * secondsPerBeat);
+            }
+
+            if (_roundTimer != null && _roundTimer.IsRunning)
+            {
+                float remainingPlayer = Mathf.Max(0f, _roundPlayerBeats - elapsedBeats);
+                _roundTimer.SetRemainingTimeDirect(remainingPlayer * secondsPerBeat);
+            }
+        }
+
         if (_currentState == GameState.PlayerInput)
         {
             // 플레이어 그리드와 선생님 그리드가 100% 일치하는지 실시간 검사
@@ -200,7 +231,7 @@ public class GameManager : MonoBehaviour
     /// </summary>
     public void StartRound()
     {
-        if (_songData == null || _songData.patterns == null || CurrentRound >= _songData.patterns.Length)
+        if (_songData == null || _songData.patternEntries == null || CurrentRound >= _songData.patternEntries.Length)
         {
             Debug.Log("[GameManager] 모든 라운드 완료!");
             
@@ -212,19 +243,38 @@ public class GameManager : MonoBehaviour
             return;
         }
         
-        PatternData currentPattern = _songData.patterns[CurrentRound];
-        _currentGraceTime = _songData.graceTime;
+        PatternEntry entry = _songData.patternEntries[CurrentRound];
+        PatternData currentPattern = entry.pattern;
+        float startBeat = entry.startBeat;
         
-        Debug.Log($"[GameManager] 라운드 {CurrentRound + 1} 시작: {currentPattern.patternName}");
+        float secondsPerBeat = 60f / _songData.bpm;
+
+        // 유예 시간(비트 수): 패턴별 개별 설정 → SongData 기본값 폴백
+        float graceTimeBeats = currentPattern.graceTime >= 0 
+            ? currentPattern.graceTime 
+            : _songData.graceTime;
+        
+        // 초 단위로 변환
+        _currentGraceTime = graceTimeBeats * secondsPerBeat;
+        
+        Debug.Log($"[GameManager] 라운드 {CurrentRound + 1} 시작: {currentPattern.patternName} (startBeat: {startBeat})");
         
         // 플레이어 입력 활성화 (선생님 턴과 동시에 입력 가능)
         if (_playerInput != null)
             _playerInput.InputEnabled = true;
 
-        // 양쪽 타이머 비주얼 세팅 및 동시 시작
-        float secondsPerBeat = 60f / _songData.bpm;
-        float teacherDuration = (currentPattern.musicStartBeat + currentPattern.MaxBeatOffset) * secondsPerBeat;
-        float playerDuration = teacherDuration + _songData.graceTime;
+        // 양쪽 타이머 비주얼 세팅 및 동시 시작 (0.5f 연출 딜레이 텀 가산으로 잔여 시간 100% 매끄러운 이관)
+        float teacherDuration = currentPattern.MaxBeatOffset * secondsPerBeat;
+        float playerDuration = (currentPattern.MaxBeatOffset + 0.5f) * secondsPerBeat + _currentGraceTime;
+
+        // BGM 동기화용 비트 오프셋 캐싱
+        _roundStartBeat = startBeat;
+        _roundTeacherBeats = currentPattern.MaxBeatOffset;
+        _roundPlayerBeats = currentPattern.MaxBeatOffset + 0.5f + graceTimeBeats;
+        _roundStartTime = Time.time;
+        _roundStartBgmTime = (AudioManager.Instance != null && AudioManager.Instance.IsBGMPlaying) 
+            ? AudioManager.Instance.CurrentBGMTime - _songData.audioStartOffset 
+            : 0f;
 
         if (_teacherTimer != null)
             _teacherTimer.StartTimer(teacherDuration);
@@ -232,13 +282,14 @@ public class GameManager : MonoBehaviour
         if (_roundTimer != null)
             _roundTimer.StartTimer(playerDuration);
         
-        // 선생님 패턴 재생 시작 (SongData의 bpm, audioStartOffset, graceTime 전달)
+        // 선생님 패턴 재생 시작 (startBeat을 외부에서 전달)
         ChangeState(GameState.TeacherPlaying);
         _teacherPatternPlayer.PlayPattern(
             currentPattern, 
             _songData.bpm, 
             _songData.audioStartOffset, 
-            _songData.graceTime
+            _currentGraceTime,
+            startBeat
         );
     }
 
@@ -256,9 +307,9 @@ public class GameManager : MonoBehaviour
         if (_teacherTimer != null)
             _teacherTimer.ResetTimer();
         
-        // 플레이어 타이머 잔여 시간(유예 시간) 정확하게 재보정 (시각적 리셋/점프 방지)
+        // 플레이어 타이머 잔여 시간(유예 시간) 정확하게 최종 재보정 (시각적 리셋/점프 방지)
         if (_roundTimer != null)
-            _roundTimer.CalibrateRemainingTime(graceTime);
+            _roundTimer.SetRemainingTimeDirect(graceTime);
     }
 
     /// <summary>
@@ -308,7 +359,7 @@ public class GameManager : MonoBehaviour
     {
         ChangeState(GameState.Result);
         
-        PatternData currentPattern = _songData.patterns[CurrentRound];
+        PatternData currentPattern = _songData.patternEntries[CurrentRound].pattern;
 
         if (_effectManager != null)
         {
@@ -334,6 +385,41 @@ public class GameManager : MonoBehaviour
             _teacherTimer.ResetTimer();
         
         yield return new WaitForSeconds(_resetDelay);
+
+        // ── 다음 라운드를 위한 실시간 비트 싱크 및 세이프티 정렬 ──
+        int nextRound = CurrentRound + 1;
+        if (_songData != null && nextRound < _songData.patternEntries.Length)
+        {
+            float nextStartBeat = _songData.patternEntries[nextRound].startBeat;
+            float secondsPerBeat = 60f / _songData.bpm;
+            
+            // 현재 음악 비트 체크
+            float currentTime = 0f;
+            if (AudioManager.Instance != null && AudioManager.Instance.IsBGMPlaying)
+            {
+                currentTime = AudioManager.Instance.CurrentBGMTime - _songData.audioStartOffset;
+            }
+            float currentBeat = currentTime / secondsPerBeat;
+            
+            if (currentBeat < nextStartBeat)
+            {
+                // 음악 비트가 아직 다음 패턴 시작 지점에 도달하지 않았다면, 도달할 때까지 매끄럽게 대기 (음악 논스톱)
+                Debug.Log($"[GameManager] 다음 패턴 비트 {nextStartBeat:F2}까지 BGM 비트 대기 중... (현재 비트: {currentBeat:F2})");
+                while (true)
+                {
+                    float t = 0f;
+                    if (AudioManager.Instance != null && AudioManager.Instance.IsBGMPlaying)
+                    {
+                        t = AudioManager.Instance.CurrentBGMTime - _songData.audioStartOffset;
+                    }
+                    float cb = t / secondsPerBeat;
+                    if (cb >= nextStartBeat)
+                        break;
+                    
+                    yield return null;
+                }
+            }
+        }
         
         // 다음 라운드
         CurrentRound++;
@@ -347,10 +433,31 @@ public class GameManager : MonoBehaviour
     {
         _currentState = newState;
 
-        // 연출 매니저를 통해 유예 시간 패널 관리 위임
+        // 연출 매니저를 통해 양쪽 가림막 패널을 게임 상태에 따라 지능적으로 중앙 집중 제어합니다.
         if (_effectManager != null)
         {
+            // 선생님 그리드 가림막: 유예 시간(PlayerInput 상태) 동안에만 켜집니다.
             _effectManager.SetGraceTimePanelActive(newState == GameState.PlayerInput);
+            
+            // 플레이어 그리드 가림막 제어
+            if (newState == GameState.TeacherPlaying)
+            {
+                // 선생님이 플레이 중일 때는 플레이어 가림막이 켜집니다.
+                _effectManager.SetPlayerGraceTimePanelActive(true);
+            }
+            else if (newState == GameState.PlayerInput)
+            {
+                // 플레이어 입력 차례(유예 시간)가 오면 기본적으로 플레이어 가림막이 꺼집니다.
+                // 단, "내 가림막 패널은 앞으로 판정에서 miss가 아닐 때만 꺼질거야" 요구사항에 따라,
+                // 이전 라운드 판정이 존재하고 그 결과가 Miss였다면 가림막은 걷히지 않고 계속 덮여(Active: true) 있게 됩니다.
+                bool isPreviousMiss = CurrentRound > 0 && LastResult.Grade == JudgmentGrade.Miss;
+                _effectManager.SetPlayerGraceTimePanelActive(isPreviousMiss);
+            }
+            else if (newState == GameState.Resetting || newState == GameState.Idle)
+            {
+                // 리셋 대기 시간 및 대기 상태(다음 패턴이 나오기 전까지의 BGM 대기 상태 포함)에는 플레이어 가림막을 켜서 가려둡니다.
+                _effectManager.SetPlayerGraceTimePanelActive(true);
+            }
         }
 
         OnStateChanged?.Invoke(newState);

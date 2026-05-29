@@ -18,7 +18,7 @@ public class PatternStep
 
 /// <summary>
 /// 선생님 패턴 데이터 (ScriptableObject)
-/// BPM과 유예 시간은 SongData에서 관리
+/// BPM은 SongData에서 관리. 유예 시간은 패턴별 개별 설정 가능 (미설정 시 SongData 기본값 사용)
 /// Assets > Create > RhythmPuzzle > PatternData 로 생성 가능
 /// </summary>
 [CreateAssetMenu(fileName = "NewPattern", menuName = "RhythmPuzzle/PatternData")]
@@ -28,8 +28,11 @@ public class PatternData : ScriptableObject
     [Tooltip("패턴 이름")]
     public string patternName = "New Pattern";
     
-    [Tooltip("BGM 내에서 이 패턴이 시작되는 비트 위치 (0 = 곡 처음)")]
-    public float musicStartBeat = 0f;
+    [Tooltip("패턴별 유예 시간 (비트 수). -1이면 SongData의 graceTime 사용")]
+    public float graceTime = -1f;
+
+    [Tooltip("패턴별 판정 연출 대기 시간 (비트 수). -1이면 SongData의 judgmentBeats 사용")]
+    public float judgmentBeats = -1f;
     
     [Header("패턴 스텝")]
     [Tooltip("순서대로 재생될 패턴 스텝들")]

@@ -31,6 +31,9 @@ public class RoundTimer : MonoBehaviour
     /// <summary>전체 시간 (초)</summary>
     public float TotalTime { get; private set; }
     
+    /// <summary>BGM 기반 정밀 수동 시간 사용 여부</summary>
+    private bool _useManualTime = false;
+    
     /// <summary>남은 시간 비율 (0~1)</summary>
     public float RemainingRatio => TotalTime > 0 ? Mathf.Clamp01(RemainingTime / TotalTime) : 0f;
 
@@ -58,6 +61,9 @@ public class RoundTimer : MonoBehaviour
     {
         if (!IsRunning) return;
         
+        // 수동 동기화 모드인 경우 deltaTime 기반 감산을 우회합니다.
+        if (_useManualTime) return;
+        
         RemainingTime -= Time.deltaTime;
         
         if (RemainingTime <= 0f)
@@ -80,8 +86,28 @@ public class RoundTimer : MonoBehaviour
         TotalTime = duration;
         RemainingTime = duration;
         IsRunning = true;
+        _useManualTime = false; // 기본 deltaTime 모드로 시작
         SetTimerVisible(true);
         UpdateVisual();
+    }
+
+    /// <summary>
+    /// 외부(BGM 동기화 등)에서 매 프레임 남은 시간을 강제 주입하여 이중 감산을 방지하고 완벽 동기화
+    /// </summary>
+    public void SetRemainingTimeDirect(float newRemainingTime)
+    {
+        if (!IsRunning) return;
+        
+        _useManualTime = true; // 수동 주입 모드 활성화
+        RemainingTime = Mathf.Clamp(newRemainingTime, 0f, TotalTime);
+        UpdateVisual();
+        
+        if (RemainingTime <= 0f)
+        {
+            RemainingTime = 0f;
+            IsRunning = false;
+            OnTimerExpired?.Invoke();
+        }
     }
 
     /// <summary>

@@ -36,7 +36,11 @@ public class PatternDataEditor : Editor
         EditorGUILayout.Space(4);
         EditorGUILayout.LabelField("패턴 정보", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(serializedObject.FindProperty("patternName"));
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("musicStartBeat"));
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("graceTime"));
+        if (pattern.graceTime < 0)
+        {
+            EditorGUILayout.HelpBox("유예 시간이 -1이므로 SongData의 기본 graceTime을 사용합니다.", MessageType.Info);
+        }
 
         EditorGUILayout.Space(8);
 

@@ -1,0 +1,54 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e69cc2b9ab4ae0c4b9b1b866bb23f73b, type: 3}
+  m_Name: 4
+  m_EditorClassIdentifier: Assembly-CSharp::PatternData
+  patternName: 4
+  graceTime: -1
+  judgmentBeats: -1
+  steps:
+  - triangleIndex: 1
+    color: 1
+    beatOffset: 0.25
+  - triangleIndex: 7
+    color: 1
+    beatOffset: 1
+  - triangleIndex: 8
+    color: 1
+    beatOffset: 2
+  - triangleIndex: 5
+    color: 1
+    beatOffset: 2.5
+  - triangleIndex: 11
+    color: 1
+    beatOffset: 3.25
+  - triangleIndex: 10
+    color: 1
+    beatOffset: 4
+  - triangleIndex: 15
+    color: 2
+    beatOffset: 4.5
+  - triangleIndex: 14
+    color: 2
+    beatOffset: 5.25
+  - triangleIndex: 20
+    color: 2
+    beatOffset: 6
+  - triangleIndex: 17
+    color: 2
+    beatOffset: 6.5
+  - triangleIndex: 18
+    color: 2
+    beatOffset: 7.25
+  - triangleIndex: 24
+    color: 2
+    beatOffset: 8

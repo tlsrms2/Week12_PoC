@@ -143,12 +143,12 @@ public class PlayerInputController : MonoBehaviour
     }
 
     /// <summary>
-    /// Q/W/E 키 입력 상태에 따른 색칠 처리 (마우스 클릭 없이 누르는 즉시 해당 마우스 위치에 색칠 및 드래그 색칠 지원)
+    /// Q/W/E 키 입력 상태와 마우스 왼쪽 버튼 클릭/드래그 상태에 따른 색칠 처리
     /// </summary>
     private void HandleColorInput()
     {
-        // 선택(토글)된 색상이 전혀 없으면 작동 안 함
-        if (_toggledChannel == ColorChannel.None)
+        // QWE 키 브러시가 활성화되어 있고 마우스 왼쪽 버튼이 꾹 눌려있는 상태에서만 칠하기가 활성화됩니다.
+        if (_toggledChannel == ColorChannel.None || !Mouse.current.leftButton.isPressed)
         {
             if (_paintedThisDrag.Count > 0)
             {

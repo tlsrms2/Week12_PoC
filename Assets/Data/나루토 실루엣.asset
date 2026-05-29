@@ -10,11 +10,11 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cbc4e479b4f6f5b4b8e592fac89f68d8, type: 3}
-  m_Name: NewSong
+  m_Name: "\uB098\uB8E8\uD1A0 \uC2E4\uB8E8\uC5E3"
   m_EditorClassIdentifier: Assembly-CSharp::SongData
-  songName: New Song
-  bpm: 120
-  bgmClip: {fileID: 8300000, guid: d2f77847c6720f34b9405475dea77ef2, type: 3}
+  songName: "\uB098\uB8E8\uD1A0 - \uC2E4\uB8E8\uC5E3"
+  bpm: 183
+  bgmClip: {fileID: 8300000, guid: 5a6a380d36b46ae41b0e5722a9513792, type: 3}
   audioStartOffset: 0
   graceTime: 2
   patterns:

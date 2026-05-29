@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cbc4e479b4f6f5b4b8e592fac89f68d8, type: 3}
+  m_Name: Shape of You
+  m_EditorClassIdentifier: Assembly-CSharp::SongData
+  songName: Shape of You
+  bpm: 96
+  bgmClip: {fileID: 8300000, guid: 2de1ac1ced8c5a9479e9cd85b6c1ad7b, type: 3}
+  audioStartOffset: 0
+  graceTime: 4
+  judgmentBeats: 4
+  patternEntries:
+  - startBeat: 0
+    pattern: {fileID: 11400000, guid: 4e4c86acf618b674eb73087c1f1cfeb7, type: 2}
+  - startBeat: 16
+    pattern: {fileID: 11400000, guid: 00c6ff2bd84f2dd48beb4cb4b49f97f5, type: 2}
+  - startBeat: 32
+    pattern: {fileID: 11400000, guid: 9e2c532752e3107438ffa2a5a7515690, type: 2}
+  - startBeat: 48
+    pattern: {fileID: 11400000, guid: 59d3e9b37bf130542bf806fca724a158, type: 2}
+  - startBeat: 64
+    pattern: {fileID: 11400000, guid: 00fcec74721200f4b8e375dd2feee390, type: 2}
+  - startBeat: 80
+    pattern: {fileID: 11400000, guid: 88070638a7391a444a15a1857fa7be01, type: 2}
+  - startBeat: 96
+    pattern: {fileID: 11400000, guid: 3c7086f7a7eff984cbcaa0c886b2c167, type: 2}
+  - startBeat: 116
+    pattern: {fileID: 11400000, guid: c43c4149ebd993b4f89d714756959935, type: 2}

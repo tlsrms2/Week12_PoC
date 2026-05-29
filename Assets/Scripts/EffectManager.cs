@@ -28,6 +28,9 @@ public class EffectManager : MonoBehaviour
     [Tooltip("선생님 턴이 끝나고 플레이어 유예 시간(PlayerInput 상태) 동안에만 활성화될 패널 오브젝트")]
     [SerializeField] private GameObject _graceTimePanel;
 
+    [Tooltip("플레이어 그리드를 가릴 유예 시간 패널 오브젝트")]
+    [SerializeField] private GameObject _playerGraceTimePanel;
+
     [Header("효과 연출 설정")]
     [Tooltip("결과 표시 및 연출 총 시간 (초)")]
     [SerializeField] private float _resultDisplayTime = 2f;
@@ -64,6 +67,9 @@ public class EffectManager : MonoBehaviour
     private Transform _teacherCircle1 = null;
     private Vector3 _teacherCircle1OriginalScale = Vector3.one;
 
+    private Transform _teacherCircle3 = null;
+    private Vector3 _teacherCircle3OriginalScale = Vector3.one;
+
     private bool _wasBGMPlaying = false;
     private bool _isSuccessAnimPlaying = false;
 
@@ -81,6 +87,9 @@ public class EffectManager : MonoBehaviour
         // 유예 시간 패널 초기 비활성화
         if (_graceTimePanel != null)
             _graceTimePanel.SetActive(false);
+
+        if (_playerGraceTimePanel != null)
+            _playerGraceTimePanel.SetActive(false);
 
         if (_judgmentText != null)
         {
@@ -260,6 +269,21 @@ public class EffectManager : MonoBehaviour
                 }
             }
         }
+
+        // 선생님 Circle (3) 캐싱
+        if (_teacherCircle3 == null && GameManager.Instance.TeacherGrid != null)
+        {
+            Transform teacherCircleTrans = FindMagicCircle(GameManager.Instance.TeacherGrid.transform);
+            if (teacherCircleTrans != null)
+            {
+                _teacherCircle3 = FindChildRecursive(teacherCircleTrans, "Circle (3)");
+                if (_teacherCircle3 != null)
+                {
+                    Vector3 original = _teacherCircle3.localScale;
+                    _teacherCircle3OriginalScale = (original.sqrMagnitude < 0.001f) ? Vector3.one : original;
+                }
+            }
+        }
     }
 
     private void RestoreOriginalScales()
@@ -282,9 +306,9 @@ public class EffectManager : MonoBehaviour
             {
                 _playerCircle1.localScale = _playerCircle1OriginalScale;
             }
-            if (_teacherCircle1 != null)
+            if (_teacherCircle3 != null)
             {
-                _teacherCircle1.localScale = _teacherCircle1OriginalScale;
+                _teacherCircle3.localScale = _teacherCircle3OriginalScale;
             }
         }
     }
@@ -299,10 +323,27 @@ public class EffectManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 플레이어 가림막 UI 패널 활성화 여부 설정
+    /// </summary>
+    public void SetPlayerGraceTimePanelActive(bool active)
+    {
+        if (_playerGraceTimePanel != null)
+            _playerGraceTimePanel.SetActive(active);
+    }
+
+    /// <summary>
     /// 판정에 따른 텍스트 및 원형 맥박 성공 연출 재생 코루틴
     /// </summary>
     public IEnumerator PlayJudgmentEffect(JudgmentGrade grade, PatternData pattern, GridManager playerGrid)
     {
+        // 판정이 Miss가 아닐 때만 플레이어 가림막을 즉시 걷어줍니다.
+        // Miss 판정이 떴을 때 플레이어 가림막(내 가리개)이 결과 연출(Result 2초) 동안 즉시 바로 덮여버리면 답답하므로,
+        // 결과 연출 2초 동안에는 켜지 않고 가만히 놔두었다가 대기 상태(Resetting)로 돌입할 때 비로소 덮이게 지연 연출합니다.
+        if (grade != JudgmentGrade.Miss)
+        {
+            SetPlayerGraceTimePanelActive(false);
+        }
+
         // 1. 등급에 따른 텍스트 및 색상 결정
         string gradeText = "";
         Color gradeColor = Color.white;
@@ -371,6 +412,12 @@ public class EffectManager : MonoBehaviour
         List<CircleCache> cachedCircles = new List<CircleCache>();
         CacheCircleRenderers(playerGrid.transform, cachedCircles);
 
+        // 선생님 그리드의 Circle (3)도 함께 무지개 색상이 통통 바뀌도록 추가 등록
+        if (GameManager.Instance != null && GameManager.Instance.TeacherGrid != null)
+        {
+            CacheTeacherCircle3Renderer(GameManager.Instance.TeacherGrid.transform, cachedCircles);
+        }
+
         CacheCircles();
         if (!_backgroundScalesCached)
         {
@@ -409,6 +456,12 @@ public class EffectManager : MonoBehaviour
                 if (_teacherCircle1 != null)
                 {
                     _teacherCircle1.localScale = _teacherCircle1OriginalScale * (1f + scaleOffset);
+                }
+
+                // 선생님 그리드 Circle (3)
+                if (_teacherCircle3 != null)
+                {
+                    _teacherCircle3.localScale = _teacherCircle3OriginalScale * (1f + scaleOffset);
                 }
 
                 // 3. 내 쪽 설정 배경들
@@ -560,6 +613,20 @@ public class EffectManager : MonoBehaviour
         if (circle1 != null)
         {
             SpriteRenderer r = circle1.GetComponent<SpriteRenderer>();
+            if (r != null)
+                cacheList.Add(new CircleCache { renderer = r, originalColor = r.color });
+        }
+    }
+
+    private void CacheTeacherCircle3Renderer(Transform gridRoot, List<CircleCache> cacheList)
+    {
+        Transform magicCircle = FindMagicCircle(gridRoot);
+        if (magicCircle == null) return;
+
+        Transform circle3 = FindChildRecursive(magicCircle, "Circle (3)");
+        if (circle3 != null)
+        {
+            SpriteRenderer r = circle3.GetComponent<SpriteRenderer>();
             if (r != null)
                 cacheList.Add(new CircleCache { renderer = r, originalColor = r.color });
         }

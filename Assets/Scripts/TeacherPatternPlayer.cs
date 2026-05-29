@@ -32,7 +32,8 @@ public class TeacherPatternPlayer : MonoBehaviour
     /// <param name="bpm">곡의 BPM</param>
     /// <param name="audioStartOffset">곡의 오디오 시작 오프셋 (초)</param>
     /// <param name="graceTime">패턴 완료 후 유예 시간 (초)</param>
-    public void PlayPattern(PatternData pattern, float bpm, float audioStartOffset, float graceTime)
+    /// <param name="startBeat">곡 내에서 이 패턴이 시작되는 비트 위치</param>
+    public void PlayPattern(PatternData pattern, float bpm, float audioStartOffset, float graceTime, float startBeat)
     {
         if (pattern == null)
         {
@@ -43,7 +44,7 @@ public class TeacherPatternPlayer : MonoBehaviour
         if (_playCoroutine != null)
             StopCoroutine(_playCoroutine);
         
-        _playCoroutine = StartCoroutine(PlayPatternCoroutine(pattern, bpm, audioStartOffset, graceTime));
+        _playCoroutine = StartCoroutine(PlayPatternCoroutine(pattern, bpm, audioStartOffset, graceTime, startBeat));
     }
 
     /// <summary>
@@ -62,9 +63,9 @@ public class TeacherPatternPlayer : MonoBehaviour
     /// <summary>
     /// 패턴 순차 재생 코루틴 — AudioSource.time 기반 비트 싱크
     /// 매 프레임 AudioManager.Instance.CurrentBGMTime을 읽어 현재 비트를 계산하고,
-    /// 스텝의 (musicStartBeat + beatOffset)에 도달하면 해당 스텝을 실행
+    /// 스텝의 (startBeat + beatOffset)에 도달하면 해당 스텝을 실행
     /// </summary>
-    private IEnumerator PlayPatternCoroutine(PatternData pattern, float bpm, float audioStartOffset, float graceTime)
+    private IEnumerator PlayPatternCoroutine(PatternData pattern, float bpm, float audioStartOffset, float graceTime, float startBeat)
     {
         IsPlaying = true;
         float secondsPerBeat = 60f / bpm;
@@ -74,7 +75,7 @@ public class TeacherPatternPlayer : MonoBehaviour
         PatternStep[] sortedSteps = (PatternStep[])pattern.steps.Clone();
         System.Array.Sort(sortedSteps, (a, b) => a.beatOffset.CompareTo(b.beatOffset));
         
-        Debug.Log($"[TeacherPatternPlayer] 패턴 '{pattern.patternName}' 재생 시작 (BPM: {bpm}, musicStartBeat: {pattern.musicStartBeat})");
+        Debug.Log($"[TeacherPatternPlayer] 패턴 '{pattern.patternName}' 재생 시작 (BPM: {bpm}, startBeat: {startBeat})");
         
         float startTime = Time.time;
         
@@ -95,10 +96,10 @@ public class TeacherPatternPlayer : MonoBehaviour
             float currentBeat = currentTime / secondsPerBeat;
             
             // 현재 비트에서 해당 패턴의 스텝들이 도달했는지 확인
-            // 스텝의 절대 비트 = musicStartBeat + beatOffset
+            // 스텝의 절대 비트 = startBeat + beatOffset
             while (stepIndex < sortedSteps.Length)
             {
-                float stepAbsoluteBeat = pattern.musicStartBeat + sortedSteps[stepIndex].beatOffset;
+                float stepAbsoluteBeat = startBeat + sortedSteps[stepIndex].beatOffset;
                 
                 if (currentBeat >= stepAbsoluteBeat)
                 {
@@ -117,6 +118,27 @@ public class TeacherPatternPlayer : MonoBehaviour
             yield return null;
         }
         
+        // 모든 스텝 재생 후, 0.5비트 동안 선생님 보드가 보이도록 지연 (대기 패널 활성화 유예)
+        float endBeat = startBeat + pattern.MaxBeatOffset + 0.5f;
+        while (true)
+        {
+            float currentTime;
+            if (AudioManager.Instance != null && AudioManager.Instance.IsBGMPlaying)
+            {
+                currentTime = AudioManager.Instance.CurrentBGMTime - audioStartOffset;
+            }
+            else
+            {
+                currentTime = Time.time - startTime;
+            }
+            
+            float currentBeat = currentTime / secondsPerBeat;
+            if (currentBeat >= endBeat)
+                break;
+            
+            yield return null;
+        }
+
         IsPlaying = false;
         _playCoroutine = null;
         
